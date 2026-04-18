@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { list } from "@vercel/blob";
 
 const localCloudDir =
   process.env.LOCAL_CLOUD_DIR ?? path.join(process.cwd(), "local-cloud", "verifications");
@@ -15,6 +16,36 @@ async function readLocalRecords() {
   } catch {
     return [];
   }
+}
+
+async function listBlobManifestRecords() {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return [];
+  }
+
+  const { blobs } = await list({
+    prefix: "verifications/",
+    limit: 1000,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+
+  const manifestBlobs = blobs.filter((blob) => blob.pathname.endsWith("/manifest.json"));
+
+  return Promise.all(
+    manifestBlobs.map(async (blob) => {
+      const response = await fetch(blob.url, {
+        headers: {
+          Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Blob manifest fetch failed with ${response.status}`);
+      }
+
+      return response.json();
+    }),
+  );
 }
 
 async function listSupabaseRecords() {
@@ -123,12 +154,19 @@ async function syncRecord(record) {
 }
 
 async function main() {
-  const [supabaseRecords, localRecords] = await Promise.all([
+  const [supabaseRecords, blobRecords, localRecords] = await Promise.all([
     listSupabaseRecords(),
+    listBlobManifestRecords(),
     readLocalRecords(),
   ]);
 
-  const records = (supabaseRecords.length ? supabaseRecords : localRecords).filter(
+  const baseRecords = supabaseRecords.length
+    ? supabaseRecords
+    : blobRecords.length
+      ? blobRecords
+      : localRecords;
+
+  const records = baseRecords.filter(
     (record) => !(record.local_synced_at ?? record.localSyncedAt),
   );
 
@@ -149,7 +187,7 @@ async function main() {
     console.log(`Synced ${record.id} to ${path.join(localCloudDir, record.username, record.id)}`);
   }
 
-  if (!supabaseRecords.length) {
+  if (!supabaseRecords.length && !blobRecords.length) {
     await writeLocalSyncStamp(updatedRecords);
   }
 }

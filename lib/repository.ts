@@ -2,6 +2,7 @@ import "server-only";
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { list, put } from "@vercel/blob";
 
 import type { VerificationRecord } from "@/lib/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -105,6 +106,55 @@ async function writeLocalStore(data: LocalStoreShape) {
   await writeFile(localStoreFile, JSON.stringify(data, null, 2), "utf8");
 }
 
+function buildManifestPath(recordId: string) {
+  return `verifications/${recordId}/manifest.json`;
+}
+
+async function saveBlobManifest(record: VerificationRecord) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return false;
+  }
+
+  await put(buildManifestPath(record.id), JSON.stringify(record, null, 2), {
+    access: "private",
+    addRandomSuffix: false,
+    contentType: "application/json",
+  });
+
+  return true;
+}
+
+async function listBlobManifestRecords() {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return [] as VerificationRecord[];
+  }
+
+  const { blobs } = await list({
+    prefix: "verifications/",
+    limit: 1000,
+  });
+
+  const manifestBlobs = blobs.filter((blob) => blob.pathname.endsWith("/manifest.json"));
+
+  const records = await Promise.all(
+    manifestBlobs.map(async (blob) => {
+      const response = await fetch(blob.url, {
+        headers: {
+          Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Blob manifest fetch failed: ${response.status}`);
+      }
+
+      return (await response.json()) as VerificationRecord;
+    }),
+  );
+
+  return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function saveVerificationRecord(record: VerificationRecord) {
   const supabase = getSupabaseAdmin();
 
@@ -113,6 +163,10 @@ export async function saveVerificationRecord(record: VerificationRecord) {
     if (error) {
       throw new Error(`Supabase insert failed: ${error.message}`);
     }
+    return;
+  }
+
+  if (await saveBlobManifest(record)) {
     return;
   }
 
@@ -140,6 +194,10 @@ export async function listVerificationRecords() {
     return (data as VerificationDbRecord[]).map(fromDbRecord);
   }
 
+  if (process.env.VERCEL && process.env.BLOB_READ_WRITE_TOKEN) {
+    return listBlobManifestRecords();
+  }
+
   const store = await readLocalStore();
   return store.verifications;
 }
@@ -158,6 +216,15 @@ export async function markVerificationLocalSynced(
 
     if (error) {
       throw new Error(`Supabase sync update failed: ${error.message}`);
+    }
+    return;
+  }
+
+  if (process.env.VERCEL && process.env.BLOB_READ_WRITE_TOKEN) {
+    const records = await listBlobManifestRecords();
+    const target = records.find((record) => record.id === verificationId);
+    if (target) {
+      await saveBlobManifest({ ...target, localSyncedAt: syncedAt });
     }
     return;
   }

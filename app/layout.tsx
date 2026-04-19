@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const ibmPlexMono = IBM_Plex_Mono({
@@ -15,9 +16,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Veriflow",
+  title: "Okpay — crypto made easy",
   description:
-    "Face-and-ID verification flows with Vercel-hosted uploads, OpenAI matching, Supabase mirroring, and local-cloud sync.",
+    "Secure crypto payment and identity verification flows. Fast, private, encrypted.",
   metadataBase: new URL("https://example.vercel.app"),
 };
 
@@ -29,9 +30,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--text)]">
+      <body className="min-h-full flex flex-col bg-[#0a0a0a] text-white">
         {children}
       </body>
     </html>

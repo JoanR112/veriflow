@@ -84,7 +84,10 @@ export async function verifyIdentityPair(input: {
   username: string;
   amount: number;
   selfie: File;
-  idPhoto: File;
+  idFront: File;
+  idBack: File;
+  idType: "passport" | "national_id" | "drivers_license";
+  countryLabel: string;
 }): Promise<VerificationAnalysis> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is missing.");
@@ -95,7 +98,8 @@ export async function verifyIdentityPair(input: {
   });
 
   const selfieBuffer = Buffer.from(await input.selfie.arrayBuffer());
-  const idBuffer = Buffer.from(await input.idPhoto.arrayBuffer());
+  const idFrontBuffer = Buffer.from(await input.idFront.arrayBuffer());
+  const idBackBuffer = Buffer.from(await input.idBack.arrayBuffer());
 
   const response = await client.responses.create({
     model: "gpt-5.1",
@@ -128,11 +132,11 @@ export async function verifyIdentityPair(input: {
         content: [
           {
             type: "input_text",
-            text: `Username for this request: ${input.username}. Amount requested: ${(input.amount / 100).toFixed(2)} USD.`,
+            text: `Username for this request: ${input.username}. Amount requested: ${(input.amount / 100).toFixed(2)} USD. Expected country: ${input.countryLabel}. Expected document type: ${input.idType}.`,
           },
           {
             type: "input_text",
-            text: "Image A is a live selfie. Image B is the identity document. Return strict JSON only.",
+            text: "Image A is a live selfie. Image B is the front of the identity document. Image C is the back of the identity document. Return strict JSON only.",
           },
           {
             type: "input_image",
@@ -141,7 +145,12 @@ export async function verifyIdentityPair(input: {
           },
           {
             type: "input_image",
-            image_url: toDataUrl(idBuffer, input.idPhoto.type || "image/jpeg"),
+            image_url: toDataUrl(idFrontBuffer, input.idFront.type || "image/jpeg"),
+            detail: "high",
+          },
+          {
+            type: "input_image",
+            image_url: toDataUrl(idBackBuffer, input.idBack.type || "image/jpeg"),
             detail: "high",
           },
         ],

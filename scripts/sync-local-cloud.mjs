@@ -128,12 +128,21 @@ async function syncRecord(record) {
   await fs.mkdir(recordDir, { recursive: true });
 
   const selfieBytes = await downloadPrivateBlob(record.selfie_blob_url ?? record.selfieBlobUrl);
-  const idBytes = await downloadPrivateBlob(record.id_blob_url ?? record.idBlobUrl);
+  const idFrontBytes = await downloadPrivateBlob(
+    record.id_front_blob_url ?? record.idFrontBlobUrl,
+  );
+  const idBackBytes = await downloadPrivateBlob(
+    record.id_back_blob_url ?? record.idBackBlobUrl,
+  );
   const selfieExtension = path.extname(record.selfie_blob_path ?? record.selfieBlobPath) || ".jpg";
-  const idExtension = path.extname(record.id_blob_path ?? record.idBlobPath) || ".jpg";
+  const idFrontExtension =
+    path.extname(record.id_front_blob_path ?? record.idFrontBlobPath) || ".jpg";
+  const idBackExtension =
+    path.extname(record.id_back_blob_path ?? record.idBackBlobPath) || ".jpg";
 
   await fs.writeFile(path.join(recordDir, `selfie${selfieExtension}`), selfieBytes);
-  await fs.writeFile(path.join(recordDir, `id${idExtension}`), idBytes);
+  await fs.writeFile(path.join(recordDir, `id-front${idFrontExtension}`), idFrontBytes);
+  await fs.writeFile(path.join(recordDir, `id-back${idBackExtension}`), idBackBytes);
 
   const manifest = {
     id: record.id,

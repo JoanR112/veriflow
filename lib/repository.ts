@@ -2,6 +2,7 @@ import "server-only";
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+
 import { list, put } from "@vercel/blob";
 
 import type { VerificationRecord } from "@/lib/types";
@@ -26,12 +27,17 @@ type VerificationDbRecord = {
   reasons: string[];
   id_readable: boolean;
   face_matches: boolean;
+  contact: VerificationRecord["contact"];
+  consents: VerificationRecord["consents"];
   selfie_blob_url: string;
   selfie_blob_path: string;
-  id_blob_url: string;
-  id_blob_path: string;
+  id_front_blob_url: string;
+  id_front_blob_path: string;
+  id_back_blob_url: string;
+  id_back_blob_path: string;
   selfie_supabase_path: string | null;
-  id_supabase_path: string | null;
+  id_front_supabase_path: string | null;
+  id_back_supabase_path: string | null;
   extracted_identity: VerificationRecord["extractedIdentity"];
   local_synced_at: string | null;
 };
@@ -49,12 +55,17 @@ function toDbRecord(record: VerificationRecord): VerificationDbRecord {
     reasons: record.reasons,
     id_readable: record.idReadable,
     face_matches: record.faceMatches,
+    contact: record.contact,
+    consents: record.consents,
     selfie_blob_url: record.selfieBlobUrl,
     selfie_blob_path: record.selfieBlobPath,
-    id_blob_url: record.idBlobUrl,
-    id_blob_path: record.idBlobPath,
+    id_front_blob_url: record.idFrontBlobUrl,
+    id_front_blob_path: record.idFrontBlobPath,
+    id_back_blob_url: record.idBackBlobUrl,
+    id_back_blob_path: record.idBackBlobPath,
     selfie_supabase_path: record.selfieSupabasePath,
-    id_supabase_path: record.idSupabasePath,
+    id_front_supabase_path: record.idFrontSupabasePath,
+    id_back_supabase_path: record.idBackSupabasePath,
     extracted_identity: record.extractedIdentity,
     local_synced_at: record.localSyncedAt,
   };
@@ -73,12 +84,17 @@ function fromDbRecord(record: VerificationDbRecord): VerificationRecord {
     reasons: record.reasons,
     idReadable: record.id_readable,
     faceMatches: record.face_matches,
+    contact: record.contact,
+    consents: record.consents,
     selfieBlobUrl: record.selfie_blob_url,
     selfieBlobPath: record.selfie_blob_path,
-    idBlobUrl: record.id_blob_url,
-    idBlobPath: record.id_blob_path,
+    idFrontBlobUrl: record.id_front_blob_url,
+    idFrontBlobPath: record.id_front_blob_path,
+    idBackBlobUrl: record.id_back_blob_url,
+    idBackBlobPath: record.id_back_blob_path,
     selfieSupabasePath: record.selfie_supabase_path,
-    idSupabasePath: record.id_supabase_path,
+    idFrontSupabasePath: record.id_front_supabase_path,
+    idBackSupabasePath: record.id_back_supabase_path,
     extractedIdentity: record.extracted_identity,
     localSyncedAt: record.local_synced_at,
   };
@@ -90,15 +106,17 @@ async function ensureLocalStore() {
   try {
     await readFile(localStoreFile, "utf8");
   } catch {
-    const emptyStore: LocalStoreShape = { verifications: [] };
-    await writeFile(localStoreFile, JSON.stringify(emptyStore, null, 2), "utf8");
+    await writeFile(
+      localStoreFile,
+      JSON.stringify({ verifications: [] satisfies VerificationRecord[] }, null, 2),
+      "utf8",
+    );
   }
 }
 
 async function readLocalStore() {
   await ensureLocalStore();
-  const raw = await readFile(localStoreFile, "utf8");
-  return JSON.parse(raw) as LocalStoreShape;
+  return JSON.parse(await readFile(localStoreFile, "utf8")) as LocalStoreShape;
 }
 
 async function writeLocalStore(data: LocalStoreShape) {
@@ -134,22 +152,22 @@ async function listBlobManifestRecords() {
     limit: 1000,
   });
 
-  const manifestBlobs = blobs.filter((blob) => blob.pathname.endsWith("/manifest.json"));
-
   const records = await Promise.all(
-    manifestBlobs.map(async (blob) => {
-      const response = await fetch(blob.url, {
-        headers: {
-          Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-        },
-      });
+    blobs
+      .filter((blob) => blob.pathname.endsWith("/manifest.json"))
+      .map(async (blob) => {
+        const response = await fetch(blob.url, {
+          headers: {
+            Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`Blob manifest fetch failed: ${response.status}`);
-      }
+        if (!response.ok) {
+          throw new Error(`Blob manifest fetch failed: ${response.status}`);
+        }
 
-      return (await response.json()) as VerificationRecord;
-    }),
+        return (await response.json()) as VerificationRecord;
+      }),
   );
 
   return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -160,9 +178,11 @@ export async function saveVerificationRecord(record: VerificationRecord) {
 
   if (supabase) {
     const { error } = await supabase.from("verifications").upsert(toDbRecord(record));
+
     if (error) {
       throw new Error(`Supabase insert failed: ${error.message}`);
     }
+
     return;
   }
 
@@ -198,8 +218,7 @@ export async function listVerificationRecords() {
     return listBlobManifestRecords();
   }
 
-  const store = await readLocalStore();
-  return store.verifications;
+  return (await readLocalStore()).verifications;
 }
 
 export async function markVerificationLocalSynced(
@@ -217,15 +236,18 @@ export async function markVerificationLocalSynced(
     if (error) {
       throw new Error(`Supabase sync update failed: ${error.message}`);
     }
+
     return;
   }
 
   if (process.env.VERCEL && process.env.BLOB_READ_WRITE_TOKEN) {
     const records = await listBlobManifestRecords();
     const target = records.find((record) => record.id === verificationId);
+
     if (target) {
       await saveBlobManifest({ ...target, localSyncedAt: syncedAt });
     }
+
     return;
   }
 

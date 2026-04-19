@@ -12,7 +12,11 @@ export type StoredUpload = {
   supabasePath: string | null;
 };
 
-function buildPath(verificationId: string, slot: "selfie" | "id", file: File) {
+function buildPath(
+  verificationId: string,
+  slot: "selfie" | "id_front" | "id_back",
+  file: File,
+) {
   const baseName = file.name ? slugify(file.name) : `${slot}-upload`;
   const extension = baseName.includes(".")
     ? ""
@@ -27,7 +31,7 @@ function buildPath(verificationId: string, slot: "selfie" | "id", file: File) {
 
 export async function storeSensitiveUpload(input: {
   verificationId: string;
-  slot: "selfie" | "id";
+  slot: "selfie" | "id_front" | "id_back";
   file: File;
 }): Promise<StoredUpload> {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
